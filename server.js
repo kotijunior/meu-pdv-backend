@@ -89,6 +89,27 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// Rota para o Administrador cadastrar um novo operador na mesma loja
+app.post('/api/users/operator', verificarToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Acesso negado. Apenas administradores podem criar operadores.' });
+  }
+
+  const { name, email, password } = req.body;
+  try {
+    const query = `
+      INSERT INTO users (name, email, password_hash, role, store_id)
+      VALUES ($1, $2, $3, 'operador', $4)
+      RETURNING id, name, email, role;
+    `;
+    const result = await pool.query(query, [name, email, password, req.user.store_id]);
+    res.status(201).json({ message: 'Operador criado com sucesso!', operator: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao cadastrar operador', detalhe: err.message });
+  }
+});
+
 // ==========================================
 // ROTAS PROTEGIDAS (Exigem Token e store_id)
 // ==========================================
