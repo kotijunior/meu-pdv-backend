@@ -280,6 +280,26 @@ app.post('/api/cash/open', verificarToken, async (req, res) => {
   }
 });
 
+// Rota para verificar se existe caixa aberto na loja atual
+app.get('/api/cash/status', verificarToken, async (req, res) => {
+  try {
+    const query = `
+      SELECT * FROM cash_registers 
+      WHERE store_id = $1 AND status = 'open' 
+      ORDER BY opened_at DESC 
+      LIMIT 1;
+    `;
+    const result = await pool.query(query, [req.user.store_id]);
+    if (result.rows.length > 0) {
+      res.json({ isOpen: true, cashRegister: result.rows[0] });
+    } else {
+      res.json({ isOpen: false });
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao verificar estado do caixa', detalhe: err.message });
+  }
+});
+
 // Fechar o caixa
 app.post('/api/cash/close/:id', verificarToken, async (req, res) => {
   const { id } = req.params;
