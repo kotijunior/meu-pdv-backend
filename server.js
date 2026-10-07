@@ -264,16 +264,16 @@ app.get('/api/reports/summary', verificarToken, async (req, res) => {
   }
 });
 
-// Abrir um novo caixa
+// Abrir um novo caixa (Multi-loja)
 app.post('/api/cash/open', verificarToken, async (req, res) => {
   const { opening_balance } = req.body;
   try {
     const query = `
-      INSERT INTO cash_registers (opening_balance, status)
-      VALUES ($1, 'open')
+      INSERT INTO cash_registers (opening_balance, status, store_id)
+      VALUES ($1, 'open', $2)
       RETURNING *;
     `;
-    const result = await pool.query(query, [opening_balance]);
+    const result = await pool.query(query, [opening_balance, req.user.store_id]);
     res.status(201).json({ message: 'Caixa aberto com sucesso!', cashRegister: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: 'Erro ao abrir o caixa', detalhe: err.message });
