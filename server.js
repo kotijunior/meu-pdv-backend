@@ -128,6 +128,26 @@ app.post('/api/sales', async (req, res) => {
   }
 });
 
+// Rota para o Histórico de Vendas (com itens agregados para reimpressão)
+app.get('/api/sales/history', async (req, res) => {
+  try {
+    const query = `
+      SELECT s.id, s.created_at as data, s.total_amount, s.payment_method,
+             json_agg(json_build_object('name', p.name, 'quantity', si.quantity, 'subtotal', si.subtotal, 'unit_price', si.unit_price)) as items
+      FROM sales s
+      JOIN sale_items si ON s.id = si.sale_id
+      JOIN products p ON si.product_id = p.id
+      GROUP BY s.id
+      ORDER BY s.created_at DESC
+      LIMIT 50
+    `;
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar histórico de vendas', detalhe: err.message });
+  }
+});
+
 // Abrir um novo caixa (informando o fundo de troco)
 app.post('/api/cash/open', async (req, res) => {
   const { opening_balance } = req.body;
