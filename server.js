@@ -110,6 +110,23 @@ app.post('/api/users/operator', verificarToken, async (req, res) => {
   }
 });
 
+// Rota para listar os utilizadores/operadores da mesma loja
+app.get('/api/users', verificarToken, async (req, res) => {
+  try {
+    const query = `
+      SELECT id, name, email, role, created_at 
+      FROM users 
+      WHERE store_id = $1 
+      ORDER BY created_at DESC;
+    `;
+    const result = await pool.query(query, [req.user.store_id]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao buscar utilizadores', detalhe: err.message });
+  }
+});
+
 // ==========================================
 // ROTAS PROTEGIDAS (Exigem Token e store_id)
 // ==========================================
