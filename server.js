@@ -60,6 +60,17 @@ app.post('/api/products', async (req, res) => {
   }
 });
 
+// Rota para listar todos os produtos (Inventário)
+app.get('/api/products', async (req, res) => {
+  try {
+    // Busca todos os produtos ordenados alfabeticamente
+    const result = await pool.query('SELECT * FROM products ORDER BY name ASC');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar o inventário', detalhe: err.message });
+  }
+});
+
 // Rota para registrar uma venda e abater o estoque
 app.post('/api/sales', async (req, res) => {
   const { items, payment_method, total_amount } = req.body; 
