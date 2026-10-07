@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const jwt = require('jsonwebtoken'); // <-- NOVA LINHA
 require('dotenv').config();
 
 const app = express();
@@ -167,7 +168,7 @@ app.get('/api/reports/summary', async (req, res) => {
   }
 });
 
-// Rota de Login simples
+// Rota de Login com JWT
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -179,14 +180,21 @@ app.post('/api/auth/login', async (req, res) => {
 
     const user = result.rows[0];
     
-    // Validação simples de senha (para o MVP)
     if (user.password_hash !== password) {
       return res.status(401).json({ error: 'Senha incorreta!' });
     }
 
+    // MÁGICA DO JWT: Gera um crachá digital criptografado
+    const token = jwt.sign(
+      { id: user.id, name: user.name, role: user.role },
+      process.env.JWT_SECRET || 'chave_mestra_secreta_pdv_2026',
+      { expiresIn: '8h' } // O turno dura 8 horas
+    );
+
     res.json({ 
       message: 'Login realizado com sucesso!', 
-      user: { id: user.id, name: user.name, role: user.role } 
+      user: { id: user.id, name: user.name, role: user.role },
+      token: token // Enviamos o token de volta para a Vitrine
     });
   } catch (err) {
     res.status(500).json({ error: 'Erro no servidor ao tentar logar', detalhe: err.message });
