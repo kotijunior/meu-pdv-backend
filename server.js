@@ -215,18 +215,21 @@ app.get('/api/customers', verificarToken, async (req, res) => {
 
 // Rota para registrar uma venda e abater o estoque (Multi-loja)
 app.post('/api/sales', verificarToken, async (req, res) => {
-  const { items, payment_method, total_amount } = req.body; 
+  const { items, payment_method, total_amount, customer_id, customer_document } = req.body; 
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
 
+    // Insere a venda com o customer_id e documento (se fornecidos)
     const saleQuery = `
-      INSERT INTO sales (total_amount, payment_method, status, store_id)
-      VALUES ($1, $2, 'completed', $3)
+      INSERT INTO sales (total_amount, payment_method, status, store_id, customer_id, customer_document)
+      VALUES ($1, $2, 'completed', $3, $4, $5)
       RETURNING id, created_at;
     `;
-    const saleResult = await client.query(saleQuery, [total_amount, payment_method, req.user.store_id]);
+    const idDoCliente = customer_id ? customer_id : null;
+    const docDoCliente = customer_document ? customer_document : null;
+    const saleResult = await client.query(saleQuery, [total_amount, payment_method, req.user.store_id, idDoCliente, docDoCliente]);
     const saleId = saleResult.rows[0].id;
 
     for (const item of items) {
