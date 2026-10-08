@@ -351,6 +351,42 @@ app.get('/api/reports/summary', verificarToken, async (req, res) => {
   }
 });
 
+// Rota para puxar o resumo gerencial do dia (Multi-loja com Filtro de Data e Alerta de Stock)
+app.get('/api/reports/summary', verificarToken, async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    let dateFilter = '';
+    const params = [req.user.store_id];
+
+    if (start && end) {
+      dateFilter = ' AND created_at >= $2 AND created_at <= $3';
+      params.push(`${start} 00:00:00`, `${end} 23:59:59`);
+    }
+
+    const salesResult = await pool.query(`SELECT COUNT(*) as total_vendas, COALESCE(SUM(total_amount), 0) as faturamento_total FROM sales WHERE store_id = $1${dateFilter}`, params);
+    
+    // NOVO: Conta produtos, itens em estoque e quantos estão com stock crítico (<= 5)
+    const productsResult = await pool.query(`
+      SELECT 
+        COUNT(*) as total_produtos, 
+        COALESCE(SUM(stock_quantity), 0) as itens_estoque,
+        COUNT(*) FILTER (WHERE stock_quantity <= 5) as stock_baixo
+      FROM products 
+      WHERE store_id = $1
+    `, [req.user.store_id]);
+
+    res.json({
+      totalVendas: salesResult.rows[0].total_vendas,
+      faturamentoTotal: parseFloat(salesResult.rows[0].faturamento_total),
+      totalProdutosCadastrados: productsResult.rows[0].total_produtos,
+      totalItensEstoque: productsResult.rows[0].itens_estoque,
+      stockBaixo: productsResult.rows[0].stock_baixo || 0
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao gerar relatório', detalhe: err.message });
+  }
+});
+
 // Rota para puxar o histórico e auditoria de caixas (Multi-loja com Filtro de Data)
 app.get('/api/reports/cash-history', verificarToken, async (req, res) => {
   try {
