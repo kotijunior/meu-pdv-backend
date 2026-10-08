@@ -282,6 +282,46 @@ app.get('/api/reports/summary', verificarToken, async (req, res) => {
   }
 });
 
+// Rota para puxar o histórico e auditoria de caixas (Multi-loja com Filtro de Data)
+app.get('/api/reports/cash-history', verificarToken, async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    let dateFilter = '';
+    const params = [req.user.store_id];
+
+    if (start && end) {
+      dateFilter = ' AND cr.opened_at >= $2 AND cr.opened_at <= $3';
+      params.push(`${start} 00:00:00`, `${end} 23:59:59`);
+    }
+
+    const query = `
+      SELECT 
+        cr.id, 
+        cr.opened_at, 
+        cr.closed_at, 
+        cr.opening_balance, 
+        cr.closing_balance,
+        cr.status,
+        COALESCE((
+          SELECT SUM(total_amount) 
+          FROM sales 
+          WHERE store_id = cr.store_id 
+          AND payment_method = 'dinheiro' 
+          AND created_at >= cr.opened_at 
+          AND (cr.closed_at IS NULL OR created_at <= cr.closed_at)
+        ), 0) as cash_sales
+      FROM cash_registers cr
+      WHERE cr.store_id = $1${dateFilter}
+      ORDER BY cr.opened_at DESC
+      LIMIT 20;
+    `;
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao gerar relatório de caixas', detalhe: err.message });
+  }
+});
+
 // Abrir um novo caixa (Multi-loja)
 app.post('/api/cash/open', verificarToken, async (req, res) => {
   const { opening_balance } = req.body;
