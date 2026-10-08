@@ -182,6 +182,25 @@ app.delete('/api/products/:id', verificarToken, async (req, res) => {
   }
 });
 
+// Rota para atualizar produto (Multi-loja)
+app.put('/api/products/:id', verificarToken, async (req, res) => {
+  const { id } = req.params;
+  const { name, barcode, cost_price, sale_price, stock_quantity, category } = req.body;
+  try {
+    const query = `
+      UPDATE products 
+      SET name = $1, barcode = $2, cost_price = $3, sale_price = $4, stock_quantity = $5, category = $6
+      WHERE id = $7 AND store_id = $8
+      RETURNING *;
+    `;
+    const result = await pool.query(query, [name, barcode, cost_price, sale_price, stock_quantity, category, id, req.user.store_id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Produto não encontrado.' });
+    res.json({ message: 'Produto atualizado com sucesso!' });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao atualizar produto', detalhe: err.message });
+  }
+});
+
 // ==========================================
 // MÓDULO CRM (GESTÃO DE CLIENTES)
 // ==========================================
