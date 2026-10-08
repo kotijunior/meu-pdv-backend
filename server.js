@@ -213,6 +213,41 @@ app.get('/api/customers', verificarToken, async (req, res) => {
   }
 });
 
+// Atualizar um cliente (Multi-loja)
+app.put('/api/customers/:id', verificarToken, async (req, res) => {
+  const { id } = req.params;
+  const { name, email, phone, document } = req.body;
+  try {
+    const query = `
+      UPDATE customers 
+      SET name = $1, email = $2, phone = $3, document = $4
+      WHERE id = $5 AND store_id = $6
+      RETURNING *;
+    `;
+    const result = await pool.query(query, [name, email, phone, document, id, req.user.store_id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente não encontrado.' });
+    res.json({ message: 'Cliente atualizado com sucesso!', customer: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao atualizar cliente', detalhe: err.message });
+  }
+});
+
+// Apagar um cliente (Multi-loja)
+app.delete('/api/customers/:id', verificarToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query('DELETE FROM customers WHERE id = $1 AND store_id = $2 RETURNING *', [id, req.user.store_id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Cliente não encontrado.' });
+    res.json({ message: 'Cliente apagado com sucesso!' });
+  } catch (err) {
+    // 23503 é o código de erro do PostgreSQL quando viola uma chave estrangeira (ex: cliente tem vendas)
+    if (err.code === '23503') {
+      return res.status(400).json({ error: 'Não pode apagar este cliente porque ele já possui histórico de compras no sistema.' });
+    }
+    res.status(500).json({ error: 'Erro ao apagar cliente', detalhe: err.message });
+  }
+});
+
 // Rota para registrar uma venda e abater o estoque (Multi-loja)
 app.post('/api/sales', verificarToken, async (req, res) => {
   const { items, payment_method, total_amount, customer_id, customer_document } = req.body; 
