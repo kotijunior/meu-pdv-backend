@@ -226,31 +226,49 @@ app.post('/api/sales', verificarToken, async (req, res) => {
   }
 });
 
-// Rota para o Histórico de Vendas (Multi-loja)
+// Rota para o Histórico de Vendas (Multi-loja com Filtro de Data)
 app.get('/api/sales/history', verificarToken, async (req, res) => {
   try {
+    const { start, end } = req.query;
+    let dateFilter = '';
+    const params = [req.user.store_id];
+
+    if (start && end) {
+      dateFilter = ' AND s.created_at >= $2 AND s.created_at <= $3';
+      params.push(`${start} 00:00:00`, `${end} 23:59:59`);
+    }
+
     const query = `
       SELECT s.id, s.created_at as data, s.total_amount, s.payment_method,
              json_agg(json_build_object('name', p.name, 'quantity', si.quantity, 'subtotal', si.subtotal, 'unit_price', si.unit_price)) as items
       FROM sales s
       JOIN sale_items si ON s.id = si.sale_id
       JOIN products p ON si.product_id = p.id
-      WHERE s.store_id = $1
+      WHERE s.store_id = $1${dateFilter}
       GROUP BY s.id
       ORDER BY s.created_at DESC
-      LIMIT 50
+      LIMIT 100
     `;
-    const result = await pool.query(query, [req.user.store_id]);
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: 'Erro ao buscar histórico de vendas', detalhe: err.message });
   }
 });
 
-// Rota para puxar o resumo gerencial do dia (Multi-loja)
+// Rota para puxar o resumo gerencial do dia (Multi-loja com Filtro de Data)
 app.get('/api/reports/summary', verificarToken, async (req, res) => {
   try {
-    const salesResult = await pool.query('SELECT COUNT(*) as total_vendas, COALESCE(SUM(total_amount), 0) as faturamento_total FROM sales WHERE store_id = $1', [req.user.store_id]);
+    const { start, end } = req.query;
+    let dateFilter = '';
+    const params = [req.user.store_id];
+
+    if (start && end) {
+      dateFilter = ' AND created_at >= $2 AND created_at <= $3';
+      params.push(`${start} 00:00:00`, `${end} 23:59:59`);
+    }
+
+    const salesResult = await pool.query(`SELECT COUNT(*) as total_vendas, COALESCE(SUM(total_amount), 0) as faturamento_total FROM sales WHERE store_id = $1${dateFilter}`, params);
     const productsResult = await pool.query('SELECT COUNT(*) as total_produtos, COALESCE(SUM(stock_quantity), 0) as itens_estoque FROM products WHERE store_id = $1', [req.user.store_id]);
 
     res.json({
@@ -261,37 +279,6 @@ app.get('/api/reports/summary', verificarToken, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: 'Erro ao gerar relatório', detalhe: err.message });
-  }
-});
-
-// Rota para puxar o histórico e auditoria de caixas (Multi-loja)
-app.get('/api/reports/cash-history', verificarToken, async (req, res) => {
-  try {
-    const query = `
-      SELECT 
-        cr.id, 
-        cr.opened_at, 
-        cr.closed_at, 
-        cr.opening_balance, 
-        cr.closing_balance,
-        cr.status,
-        COALESCE((
-          SELECT SUM(total_amount) 
-          FROM sales 
-          WHERE store_id = cr.store_id 
-          AND payment_method = 'dinheiro' 
-          AND created_at >= cr.opened_at 
-          AND (cr.closed_at IS NULL OR created_at <= cr.closed_at)
-        ), 0) as cash_sales
-      FROM cash_registers cr
-      WHERE cr.store_id = $1
-      ORDER BY cr.opened_at DESC
-      LIMIT 20;
-    `;
-    const result = await pool.query(query, [req.user.store_id]);
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: 'Erro ao gerar relatório de caixas', detalhe: err.message });
   }
 });
 
