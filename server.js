@@ -182,6 +182,37 @@ app.delete('/api/products/:id', verificarToken, async (req, res) => {
   }
 });
 
+// ==========================================
+// MÓDULO CRM (GESTÃO DE CLIENTES)
+// ==========================================
+
+// Cadastrar um novo cliente (Multi-loja)
+app.post('/api/customers', verificarToken, async (req, res) => {
+  const { name, email, phone, document } = req.body;
+  try {
+    const query = `
+      INSERT INTO customers (name, email, phone, document, store_id)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *;
+    `;
+    const result = await pool.query(query, [name, email, phone, document, req.user.store_id]);
+    res.status(201).json({ message: 'Cliente cadastrado com sucesso!', customer: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao cadastrar cliente', detalhe: err.message });
+  }
+});
+
+// Listar clientes da loja (Multi-loja)
+app.get('/api/customers', verificarToken, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM customers WHERE store_id = $1 ORDER BY name ASC', [req.user.store_id]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar clientes', detalhe: err.message });
+  }
+});
+
 // Rota para registrar uma venda e abater o estoque (Multi-loja)
 app.post('/api/sales', verificarToken, async (req, res) => {
   const { items, payment_method, total_amount } = req.body; 
