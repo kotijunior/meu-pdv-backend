@@ -267,15 +267,45 @@ app.delete('/api/customers/:id', verificarToken, async (req, res) => {
   }
 });
 
-// Rota para registrar uma venda e abater o estoque (Multi-loja)
+// ==========================================
+// MÓDULO DE CONFIGURAÇÕES DA LOJA
+// ==========================================
+
+// Buscar configurações
+app.get('/api/settings', verificarToken, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT cashback_enabled, cashback_percentage FROM stores WHERE id = $1', [req.user.store_id]);
+    res.json(result.rows[0] || { cashback_enabled: false, cashback_percentage: 0 });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao buscar configurações', detalhe: err.message });
+  }
+});
+
+// Atualizar configurações
+app.put('/api/settings', verificarToken, async (req, res) => {
+  const { cashback_enabled, cashback_percentage } = req.body;
+  try {
+    await pool.query('UPDATE stores SET cashback_enabled = $1, cashback_percentage = $2 WHERE id = $3', 
+      [cashback_enabled, parseFloat(cashback_percentage) || 0, req.user.store_id]);
+    res.json({ message: 'Configurações atualizadas com sucesso!' });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao atualizar configurações', detalhe: err.message });
+  }
+});
+
+// Rota para registrar uma venda (Multi-loja com CASHBACK)
 app.post('/api/sales', verificarToken, async (req, res) => {
-  const { items, payment_method, total_amount, customer_id, customer_document } = req.body; 
+  const { items, payment_method, total_amount, customer_id, customer_document, cashback_used } = req.body; 
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
 
-    // Insere a venda com o customer_id e documento (se fornecidos)
+    // Calcula o valor final da venda após o desconto do cashback
+    const valorDesconto = cashback_used ? parseFloat(cashback_used) : 0;
+    const valorFinal = total_amount - valorDesconto;
+
+    // Insere a venda com o valor final pago
     const saleQuery = `
       INSERT INTO sales (total_amount, payment_method, status, store_id, customer_id, customer_document)
       VALUES ($1, $2, 'completed', $3, $4, $5)
@@ -283,9 +313,10 @@ app.post('/api/sales', verificarToken, async (req, res) => {
     `;
     const idDoCliente = customer_id ? customer_id : null;
     const docDoCliente = customer_document ? customer_document : null;
-    const saleResult = await client.query(saleQuery, [total_amount, payment_method, req.user.store_id, idDoCliente, docDoCliente]);
+    const saleResult = await client.query(saleQuery, [valorFinal, payment_method, req.user.store_id, idDoCliente, docDoCliente]);
     const saleId = saleResult.rows[0].id;
 
+    // Abate o stock dos itens
     for (const item of items) {
       const itemQuery = `
         INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, subtotal)
@@ -295,17 +326,40 @@ app.post('/api/sales', verificarToken, async (req, res) => {
       await client.query(itemQuery, [saleId, item.product_id, item.quantity, item.unit_price, subtotal]);
 
       const stockQuery = `
-        UPDATE products 
-        SET stock_quantity = stock_quantity - $1 
-        WHERE id = $2 AND store_id = $3;
+        UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2 AND store_id = $3;
       `;
       await client.query(stockQuery, [item.quantity, item.product_id, req.user.store_id]);
+    }
+
+    // LÓGICA DE CASHBACK: Desconta o usado e adiciona o saldo ganho nesta compra
+    let cashback_ganho = 0;
+    if (idDoCliente) {
+      const storeConfig = await client.query('SELECT cashback_enabled, cashback_percentage FROM stores WHERE id = $1', [req.user.store_id]);
+      
+      // Só gera novo cashback se a loja o tiver ativado nas configurações
+      if (storeConfig.rows.length > 0 && storeConfig.rows[0].cashback_enabled) {
+        const percentagem = parseFloat(storeConfig.rows[0].cashback_percentage) || 0;
+        cashback_ganho = valorFinal * (percentagem / 100);
+      }
+      
+      // Atualiza a carteira do cliente
+      await client.query(`
+        UPDATE customers 
+        SET cashback_balance = COALESCE(cashback_balance, 0) - $1 + $2 
+        WHERE id = $3 AND store_id = $4
+      `, [valorDesconto, cashback_ganho, idDoCliente, req.user.store_id]);
     }
 
     await client.query('COMMIT');
     client.release();
 
-    res.status(201).json({ message: 'Venda realizada com sucesso!', saleId: saleId });
+    res.status(201).json({ 
+      message: 'Venda realizada!', 
+      saleId: saleId, 
+      cashback_ganho, 
+      cashback_usado: valorDesconto,
+      total_pago: valorFinal
+    });
   } catch (err) {
     await client.query('ROLLBACK');
     client.release();
