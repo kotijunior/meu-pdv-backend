@@ -384,7 +384,7 @@ app.get('/api/reports/summary', verificarToken, async (req, res) => {
 
     const salesResult = await pool.query(`SELECT COUNT(*) as total_vendas, COALESCE(SUM(total_amount), 0) as faturamento_total FROM sales WHERE store_id = $1${dateFilter}`, params);
     
-    // NOVO: Conta produtos, itens em estoque e quantos estão com stock crítico (<= 5)
+    // AQUI É O SEGREDO: Conta produtos e quantos estão com stock <= 5
     const productsResult = await pool.query(`
       SELECT 
         COUNT(*) as total_produtos, 
@@ -394,12 +394,13 @@ app.get('/api/reports/summary', verificarToken, async (req, res) => {
       WHERE store_id = $1
     `, [req.user.store_id]);
 
+    // Envia os dados para o Front-end
     res.json({
       totalVendas: salesResult.rows[0].total_vendas,
       faturamentoTotal: parseFloat(salesResult.rows[0].faturamento_total),
       totalProdutosCadastrados: productsResult.rows[0].total_produtos,
       totalItensEstoque: productsResult.rows[0].itens_estoque,
-      stockBaixo: productsResult.rows[0].stock_baixo || 0
+      stock_baixo: parseInt(productsResult.rows[0].stock_baixo) || 0 // Garante que envia um número
     });
   } catch (err) {
     res.status(500).json({ error: 'Erro ao gerar relatório', detalhe: err.message });
